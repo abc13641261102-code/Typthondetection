@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flask local data (GitHub Actions generates this)
+# data/typhoon_latest.json is NOT ignored — it must be in the repo for Pages
