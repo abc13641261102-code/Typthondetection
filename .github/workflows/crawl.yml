@@ -1,0 +1,39 @@
+name: 台风快讯定时爬取
+
+on:
+  schedule:
+    # 每小时整点执行一次（UTC 时间，北京时间 = UTC+8）
+    - cron: "0 * * * *"
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 运行爬虫
+        run: python crawler.py
+
+      - name: 提交更新
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/typhoon_latest.json
+          git diff --cached --quiet || (
+            git commit -m "自动更新台风快讯 $(date +'%Y-%m-%d %H:%M')"
+            git push
+          )

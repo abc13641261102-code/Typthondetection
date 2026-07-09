@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中央气象台台风快讯</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", sans-serif;
+            background: #0a1628;
+            color: #e0e6ed;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header {
+            text-align: center;
+            padding: 30px 0 20px;
+            border-bottom: 2px solid #1e3a5f;
+            margin-bottom: 25px;
+        }
+        .header h1 { font-size: 28px; color: #4fc3f7; letter-spacing: 2px; }
+        .header .subtitle { font-size: 13px; color: #78909c; margin-top: 6px; }
+        .update-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 20px; background: #0d2137; border-radius: 8px;
+            margin-bottom: 20px; font-size: 13px;
+        }
+        .update-bar .time { color: #4fc3f7; }
+        .update-bar button {
+            background: #1565c0; color: #fff; border: none;
+            padding: 8px 18px; border-radius: 5px; cursor: pointer; font-size: 13px;
+        }
+        .update-bar button:hover { background: #1976d2; }
+        .main-card {
+            background: linear-gradient(135deg, #0d2137 0%, #112240 100%);
+            border: 1px solid #1e3a5f; border-radius: 12px; padding: 30px; margin-bottom: 20px;
+        }
+        .typhoon-name {
+            font-size: 22px; font-weight: bold; color: #ffb74d; margin-bottom: 15px;
+        }
+        .typhoon-name span { color: #78909c; font-size: 14px; }
+        .info-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px;
+        }
+        .info-item {
+            background: #0a1628; border: 1px solid #1e3a5f; border-radius: 8px; padding: 14px 18px;
+        }
+        .info-item .label { font-size: 12px; color: #546e7a; margin-bottom: 6px; letter-spacing: 1px; }
+        .info-item .value { font-size: 16px; color: #e0e6ed; font-weight: 500; }
+        .wind-card {
+            background: #0d2137; border: 1px solid #1e3a5f; border-radius: 10px; padding: 20px; margin-bottom: 20px;
+        }
+        .wind-card h3 { color: #4fc3f7; font-size: 16px; margin-bottom: 12px; }
+        .wind-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center; }
+        .wind-item { background: #0a1628; border-radius: 6px; padding: 10px 6px; }
+        .wind-item .dir { color: #546e7a; font-size: 11px; }
+        .wind-item .km { color: #ffb74d; font-size: 18px; font-weight: bold; }
+        .forecast-card {
+            background: #0d2137; border-left: 3px solid #4fc3f7;
+            border-radius: 0 8px 8px 0; padding: 18px 20px; margin-bottom: 20px;
+        }
+        .forecast-card h3 { color: #4fc3f7; font-size: 14px; margin-bottom: 8px; }
+        .forecast-card p { font-size: 14px; line-height: 1.7; color: #b0bec5; }
+        .history-card {
+            background: #0d2137; border: 1px solid #1e3a5f; border-radius: 10px; padding: 20px; margin-bottom: 20px;
+        }
+        .history-card h3 { color: #4fc3f7; font-size: 16px; margin-bottom: 12px; }
+        .timeline { display: flex; flex-wrap: wrap; gap: 8px; }
+        .timeline-item {
+            background: #0a1628; border: 1px solid #1e3a5f; border-radius: 5px;
+            padding: 5px 12px; font-size: 12px; color: #78909c;
+        }
+        .loading { text-align: center; padding: 60px 0; color: #546e7a; font-size: 16px; }
+        .error-msg {
+            background: #2d1b1b; border: 1px solid #5c3a3a; border-radius: 8px;
+            padding: 20px; text-align: center; color: #ef9a9a;
+        }
+        .api-info {
+            background: #0a2e1f; border: 1px solid #1a5c3a; border-radius: 8px;
+            padding: 14px 18px; margin-bottom: 20px; font-size: 13px; color: #81c784;
+        }
+        .api-info code { color: #a5d6a7; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>中央气象台台风快讯</h1>
+        <div class="subtitle">数据来源：国家气象中心 · 每小时自动更新</div>
+    </div>
+
+    <div class="api-info">
+        API 接口：<code>GET ./data/typhoon_latest.json</code> ——
+        SOS-任意查可直接配置此 URL 获取完整 JSON
+    </div>
+
+    <div class="update-bar">
+        <span class="time" id="updateTime">加载中...</span>
+        <button onclick="loadData()">刷新</button>
+    </div>
+
+    <div id="content"></div>
+</div>
+
+<script>
+const DATA_URL = "./data/typhoon_latest.json";
+
+async function loadData() {
+    const content = document.getElementById("content");
+    try {
+        const resp = await fetch(DATA_URL);
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+
+        if (data.error) {
+            content.innerHTML = `<div class="error-msg">爬取失败: ${data.error}</div>`;
+            return;
+        }
+        if (data["状态"]) {
+            content.innerHTML = `<div class="loading">${data["状态"]}</div>`;
+            return;
+        }
+
+        document.getElementById("updateTime").textContent =
+            "最后更新: " + (data["爬取时间"] || "未知");
+        renderUI(data);
+    } catch (e) {
+        content.innerHTML = `<div class="error-msg">加载失败: ${e.message}</div>`;
+    }
+}
+
+function renderUI(d) {
+    const nameEl = d["中文名"]
+        ? `<div class="typhoon-name">${d["中文名"]} (${d["英文名"]||""}) <span>第${d["编号"]||"?"}号台风</span></div>`
+        : "";
+
+    const fields = [
+        {l:"发布时间", v: d["发布时间"]},
+        {l:"强度等级", v: d["强度等级"]},
+        {l:"中心位置", v: d["中心位置"]},
+        {l:"最大风力", v: d["最大风力"]},
+        {l:"中心气压", v: d["中心气压"]},
+        {l:"参考位置", v: d["参考位置"]},
+        {l:"下次更新", v: d["下次更新时间"]},
+        {l:"总期数", v: d["总期数"] ? `${d["年份"]||""}年第${d["总期数"]}期` : ""}
+    ];
+
+    let gridHTML = "";
+    for (const f of fields) {
+        if (!f.v) continue;
+        gridHTML += `<div class="info-item"><div class="label">${f.l}</div><div class="value">${f.v}</div></div>`;
+    }
+
+    let windHTML = "";
+    for (const w of [
+        {k:"七级风圈", d: d["七级风圈"]},
+        {k:"十级风圈", d: d["十级风圈"]},
+        {k:"十二级风圈", d: d["十二级风圈"]}
+    ]) {
+        if (!w.d || Object.keys(w.d).length === 0) continue;
+        windHTML += `<div class="wind-card"><h3>${w.k}半径</h3><div class="wind-grid">`;
+        for (const dir of ["东北","东南","西南","西北"]) {
+            windHTML += `<div class="wind-item"><div class="dir">${dir}</div><div class="km">${w.d[dir]||"-"} km</div></div>`;
+        }
+        windHTML += "</div></div>";
+    }
+
+    let forecastHTML = "";
+    if (d["预报结论"]) {
+        forecastHTML = `<div class="forecast-card"><h3>预报结论</h3><p>${d["预报结论"]}</p></div>`;
+    }
+
+    let historyHTML = "";
+    if (d["历史快讯时间列表"] && d["历史快讯时间列表"].length > 0) {
+        historyHTML = `<div class="history-card"><h3>历史快讯时间线</h3><div class="timeline">`;
+        for (const t of d["历史快讯时间列表"]) {
+            historyHTML += `<div class="timeline-item">${t}</div>`;
+        }
+        historyHTML += "</div></div>";
+    }
+
+    document.getElementById("content").innerHTML = `
+        <div class="main-card">${nameEl}<div class="info-grid">${gridHTML}</div></div>
+        ${windHTML}${forecastHTML}${historyHTML}
+    `;
+}
+
+loadData();
+setInterval(loadData, 60000);
+</script>
+</body>
+</html>
