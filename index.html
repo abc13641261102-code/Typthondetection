@@ -105,12 +105,13 @@
 </div>
 
 <script>
-const DATA_URL = "./data/typhoon_latest.json?v=" + Date.now();
+const DATA_BASE = "./data/typhoon_latest.json";
 
 async function loadData() {
     const content = document.getElementById("content");
     try {
-        const resp = await fetch(DATA_URL);
+        // 每次请求加新时间戳，彻底破除浏览器缓存
+        const resp = await fetch(DATA_BASE + "?v=" + Date.now());
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const data = await resp.json();
 
