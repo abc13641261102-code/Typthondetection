@@ -2,11 +2,14 @@ name: 台风快讯定时爬取
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 * * * *"  # 每小时整点执行一次（北京时间）
   workflow_dispatch:
 
 jobs:
   crawl:
+    env:
+      TZ: Asia/Shanghai
+
     runs-on: ubuntu-latest
 
     permissions:
