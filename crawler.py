@@ -114,14 +114,47 @@ def fetch_typhoon_data():
     return info
 
 
+def parse_next_update_time(next_str, now=None):
+    """解析"下次更新时间"如 "9日20时30分"，返回目标时间（+5分钟），失败返回 None"""
+    if not next_str:
+        return None
+    m = re.match(r'(\d{1,2})日(\d{1,2})时(\d{1,2})分', next_str.strip())
+    if not m:
+        return None
+    day, hour, minute = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if now is None:
+        now = datetime.now()
+
+    target = now.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        if now.month == 12:
+            target = target.replace(year=now.year + 1, month=1)
+        else:
+            target = target.replace(month=now.month + 1)
+
+    from datetime import timedelta
+    target += timedelta(minutes=5)
+    return target
+
+
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     data_dir = os.path.join(script_dir, "data")
+    out_path = os.path.join(data_dir, "typhoon_latest.json")
+
+    # 检查是否到了下次更新时间+5分钟，未到则跳过
+    if os.path.exists(out_path):
+        with open(out_path, "r", encoding="utf-8") as f:
+            old_data = json.load(f)
+        next_target = parse_next_update_time(old_data.get("下次更新时间", ""))
+        if next_target and datetime.now() < next_target:
+            print(f"SKIP: 下次更新时间+5分钟为 {next_target.strftime('%m月%d日 %H:%M')}，"
+                  f"当前时间 {datetime.now().strftime('%m月%d日 %H:%M')}，尚未到达，跳过本次爬取")
+            sys.exit(0)
+
     os.makedirs(data_dir, exist_ok=True)
 
     data = fetch_typhoon_data()
-    out_path = os.path.join(data_dir, "typhoon_latest.json")
-
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 

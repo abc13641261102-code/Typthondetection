@@ -20,7 +20,7 @@ from flask import Flask, jsonify, render_template
 URL = "https://www.nmc.cn/publish/typhoon/typhoon_new.html"
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DATA_FILE = os.path.join(DATA_DIR, "typhoon_latest.json")
-INTERVAL_SECONDS = 3600  # 每小时爬一次
+DEFAULT_INTERVAL = 300  # 默认 5 分钟后重试（无下次更新时间时使用）
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -144,18 +144,66 @@ def load_data():
         return json.load(f)
 
 
+def parse_next_update_time(next_str, now=None):
+    """
+    解析"下次更新时间"如 "9日20时30分" 或 "10日8时30分"，
+    返回下一次爬取的目标 datetime（下次更新时间 + 5 分钟）。
+    格式不匹配或解析失败返回 None。
+    """
+    if not next_str:
+        return None
+    import re as _re
+    m = _re.match(r'(\d{1,2})日(\d{1,2})时(\d{1,2})分', next_str.strip())
+    if not m:
+        return None
+    day, hour, minute = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if now is None:
+        now = datetime.now()
+
+    # 构建目标时间（同月同日 + 当月推断）
+    target = now.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
+
+    # 如果目标时间已过（同一天但时刻已过，或者天数比今天小=跨月），顺延到下一月
+    if target <= now:
+        if now.month == 12:
+            target = target.replace(year=now.year + 1, month=1)
+        else:
+            target = target.replace(month=now.month + 1)
+
+    # 加 5 分钟
+    from datetime import timedelta
+    target += timedelta(minutes=5)
+    return target
+
+
 def scheduled_crawl():
-    """定时爬取循环（后台线程）"""
+    """定时爬取循环（后台线程）—— 根据下次更新时间动态调度"""
     while True:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] 开始爬取台风快讯...")
+        now = datetime.now()
+        print(f"[{now.strftime('%H:%M:%S')}] 开始爬取台风快讯...")
         data = fetch_typhoon_data()
         if "error" in data:
-            print(f"  爬取失败: {data['error']}")
+            print(f"  爬取失败: {data['error']}，{DEFAULT_INTERVAL}秒后重试")
+            time.sleep(DEFAULT_INTERVAL)
+            continue
+
+        save_data(data)
+        print(f"  爬取成功！台风: {data.get('中文名', 'N/A')}, "
+              f"强度: {data.get('强度等级', 'N/A')}")
+
+        # 根据下次更新时间计算下一次爬取时间
+        next_target = parse_next_update_time(data.get("下次更新时间", ""), now)
+        if next_target:
+            wait = (next_target - datetime.now()).total_seconds()
+            if wait <= 0:
+                wait = DEFAULT_INTERVAL
+            print(f"  下次更新时间: {data.get('下次更新时间')}, "
+                  f"计划下次爬取: {next_target.strftime('%m月%d日 %H:%M')}")
         else:
-            save_data(data)
-            print(f"  爬取成功！台风: {data.get('中文名', 'N/A')}, "
-                  f"强度: {data.get('强度等级', 'N/A')}")
-        time.sleep(INTERVAL_SECONDS)
+            wait = DEFAULT_INTERVAL
+            print(f"  无法解析下次更新时间，{DEFAULT_INTERVAL}秒后重试")
+
+        time.sleep(wait)
 
 
 # ========== Flask Web 服务 ==========
