@@ -42,8 +42,7 @@ jobs:
           fi
 
       - name: 触发 Pages 重新部署
-        if: env.NO_CHANGE == 'false'
+        if: success()
         run: |
-          echo "正在触发 Pages 部署..."
           gh api repos/${{ github.repository }}/pages/builds --method POST
-          echo "Pages 部署已触发"
+
