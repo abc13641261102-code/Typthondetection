@@ -7,9 +7,17 @@ import os
 import re
 import json
 import sys
+import time
 from datetime import datetime
 
 import requests
+
+# 设置时区为北京时间，确保在 GitHub Actions（UTC 环境）中 datetime.now() 返回北京时间
+os.environ["TZ"] = "Asia/Shanghai"
+try:
+    time.tzset()
+except AttributeError:
+    pass  # Windows 上 tzset 不可用，GitHub Actions Linux 环境会生效
 
 URL = "https://www.nmc.cn/publish/typhoon/typhoon_new.html"
 HEADERS = {
