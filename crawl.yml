@@ -2,14 +2,12 @@ name: 台风快讯定时爬取
 
 on:
   schedule:
-    - cron: "0 * * * *"  # 每小时整点执行一次（北京时间）
-  workflow_dispatch:
+    # 每小时整点执行一次（UTC 时间，北京时间 = UTC+8）
+    - cron: "0 * * * *"
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   crawl:
-    env:
-      TZ: Asia/Shanghai
-
     runs-on: ubuntu-latest
 
     permissions:
@@ -36,16 +34,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/typhoon_latest.json
-          if git diff --cached --quiet; then
-            echo "NO_CHANGE=true" >> $GITHUB_ENV
-          else
-            echo "NO_CHANGE=false" >> $GITHUB_ENV
-            git commit -m "自动更新台风快讯 $(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M')"
+          git diff --cached --quiet || (
+            git commit -m "自动更新台风快讯 $(date +'%Y-%m-%d %H:%M')"
             git push
-          fi
+          )
 
       - name: 触发 Pages 重新部署
         if: success()
         run: |
           gh api repos/${{ github.repository }}/pages/builds --method POST
-
