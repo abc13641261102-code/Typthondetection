@@ -142,6 +142,9 @@ def parse_next_update_time(next_str, now=None):
 
     from datetime import timedelta
     target += timedelta(minutes=5)
+
+    if target < datetime.now():
+        return None
     return target
 
 
