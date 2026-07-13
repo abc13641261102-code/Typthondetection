@@ -8,16 +8,15 @@ import re
 import json
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 
-# 设置时区为北京时间，确保在 GitHub Actions（UTC 环境）中 datetime.now() 返回北京时间
 os.environ["TZ"] = "Asia/Shanghai"
 try:
     time.tzset()
 except AttributeError:
-    pass  # Windows 上 tzset 不可用，GitHub Actions Linux 环境会生效
+    pass
 
 URL = "https://www.nmc.cn/publish/typhoon/typhoon_new.html"
 HEADERS = {
@@ -45,54 +44,44 @@ def fetch_typhoon_data():
     text = clean_html(html)
     info = {}
 
-    # 期号
     m = re.search(r"(\d{4})年总(\d+)期", text)
     if m:
         info["年份"] = m.group(1)
         info["总期数"] = m.group(2)
 
-    # 发布时间
     m = re.search(r"中国气象局中央气象台(\d{2}月\d{2}日\d{2}时\d{2}分)", text)
     if m:
         info["发布时间"] = m.group(1)
 
-    # 名称（兼容中英文引号）
     m = re.search(r'[\u201c"]([^\u201d\u201c"]+)[\u201d"][，,]\s*([A-Z]+)', text)
     if m:
         info["中文名"] = m.group(1).strip()
         info["英文名"] = m.group(2).strip()
 
-    # 编号
     m = re.search(r"编\s*号[：:]\s*(\d+)\s*号", text)
     if m:
         info["编号"] = m.group(1)
 
-    # 中心位置
     m = re.search(r"中心位置[：:]\s*(.+?)强度等级", text)
     if m:
         info["中心位置"] = m.group(1).strip()
 
-    # 强度等级
     m = re.search(r"强度等级[：:]\s*(.+?)最大风力", text)
     if m:
         info["强度等级"] = m.group(1).strip()
 
-    # 最大风力
     m = re.search(r"最大风力[：:]\s*(.+?)中心气压", text)
     if m:
         info["最大风力"] = m.group(1).strip()
 
-    # 中心气压
     m = re.search(r"中心气压[：:]\s*(.+?)参考位置", text)
     if m:
         info["中心气压"] = m.group(1).strip()
 
-    # 参考位置
     m = re.search(r"参考位置[：:]\s*(.+?)风圈半径", text)
     if m:
         info["参考位置"] = m.group(1).strip()
 
-    # 风圈半径
     def extract_wind_radius(label, text):
         pattern = label + r".*?东北方向(\d+)公里.*?东南方向(\d+)公里.*?西南方向(\d+)公里.*?西北方向(\d+)公里"
         m = re.search(pattern, text, re.DOTALL)
@@ -104,17 +93,14 @@ def fetch_typhoon_data():
     info["十级风圈"] = extract_wind_radius("十级风圈半径", text)
     info["十二级风圈"] = extract_wind_radius("十二级风圈半径", text)
 
-    # 预报结论
     m = re.search(r"预报结论[：:]\s*(.+?)(?:（下次)", text)
     if m:
         info["预报结论"] = m.group(1).strip()
 
-    # 下次更新时间
     m = re.search(r"下次更新时间为(.+?)[）)]", text)
     if m:
         info["下次更新时间"] = m.group(1).strip()
 
-    # 历史快讯
     history = re.findall(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
     info["历史快讯时间列表"] = history
 
@@ -123,7 +109,9 @@ def fetch_typhoon_data():
 
 
 def parse_next_update_time(next_str, now=None):
-    """解析"下次更新时间"如 "9日20时30分"，返回目标时间（+5分钟），失败返回 None"""
+    """解析"下次更新时间"如 "9日20时30分"，返回目标时间+5分钟。
+       若解析失败或目标时间在2天以前，返回 None（立即爬取）。
+       若目标在当月已过去（如今天是13日目标11日），也返回 None。"""
     if not next_str:
         return None
     m = re.match(r'(\d{1,2})日(\d{1,2})时(\d{1,2})分', next_str.strip())
@@ -133,18 +121,19 @@ def parse_next_update_time(next_str, now=None):
     if now is None:
         now = datetime.now()
 
+    # 尝试当月
     target = now.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
-    if target <= now:
-        if now.month == 12:
-            target = target.replace(year=now.year + 1, month=1)
-        else:
-            target = target.replace(month=now.month + 1)
 
-    from datetime import timedelta
-    target += timedelta(minutes=5)
-
-    if target < datetime.now():
+    # 如果当月目标已过去超过2天，说明数据已过期，直接返回 None 触发爬取
+    if target < now - timedelta(days=2):
         return None
+
+    # 当月目标已过去但在2天内（如13日08:00的目标，当前13日09:00），
+    # 说明 NMC 还没更新，等到下个小时再试 → 滚到下个月没有意义，返回 None
+    if target <= now:
+        return None
+
+    target += timedelta(minutes=5)
     return target
 
 
@@ -153,7 +142,6 @@ if __name__ == "__main__":
     data_dir = os.path.join(script_dir, "data")
     out_path = os.path.join(data_dir, "typhoon_latest.json")
 
-    # 检查是否到了下次更新时间+5分钟，未到则跳过
     if os.path.exists(out_path):
         with open(out_path, "r", encoding="utf-8") as f:
             old_data = json.load(f)
