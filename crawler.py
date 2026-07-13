@@ -8,6 +8,7 @@ import re
 import json
 import sys
 import time
+import traceback
 from datetime import datetime, timedelta
 
 import requests
@@ -25,20 +26,38 @@ HEADERS = {
                   "Chrome/125.0.0.0 Safari/537.36"
 }
 
+MAX_RETRIES = 3
+RETRY_DELAY_SEC = 10
 
 def clean_html(text):
+    """清洗 HTML，同时处理 &nbsp; 实体和 \\xa0 字符"""
     text = re.sub(r"<[^>]+>", "", text)
-    text = re.sub(r"&nbsp;", " ", text)
+    # 处理 &nbsp; 实体（字符串形式，未被 HTML 解析器解码）
+    text = text.replace("&nbsp;", " ")
+    # 处理 \\xa0（已被解码的非断行空格）
+    text = text.replace("\xa0", " ")
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
+def is_data_valid(data):
+    """验证爬取数据是否完整：至少包含中文名、发布时间和总期数"""
+    if "error" in data:
+        return False
+    if not data.get("中文名") or not data.get("发布时间") or not data.get("总期数"):
+        return False
+    return True
 
-def fetch_typhoon_data():
+def fetch_typhoon_data(retry=0):
+    """抓取台风数据，失败时自动重试"""
     try:
         resp = requests.get(URL, headers=HEADERS, timeout=30)
         resp.encoding = "utf-8"
         html = resp.text
     except Exception as e:
+        if retry < MAX_RETRIES - 1:
+            print(f"[RETRY {retry + 1}/{MAX_RETRIES}] 请求异常: {e}，{RETRY_DELAY_SEC}s 后重试...")
+            time.sleep(RETRY_DELAY_SEC)
+            return fetch_typhoon_data(retry + 1)
         return {"error": str(e), "time": datetime.now().isoformat()}
 
     text = clean_html(html)
@@ -58,7 +77,8 @@ def fetch_typhoon_data():
         info["中文名"] = m.group(1).strip()
         info["英文名"] = m.group(2).strip()
 
-    m = re.search(r"编\s*号[：:]\s*(\d+)\s*号", text)
+    # 编号：兼容 "编&nbsp;&nbsp;&nbsp;&nbsp;号" 和 "编 号" 两种格式
+    m = re.search(r"编[\s\xa0]*号[：:][\s\xa0]*(\d+)[\s\xa0]*号", text)
     if m:
         info["编号"] = m.group(1)
 
@@ -105,8 +125,27 @@ def fetch_typhoon_data():
     info["历史快讯时间列表"] = history
 
     info["爬取时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return info
 
+    # 数据不完整则重试
+    if not is_data_valid(info) and retry < MAX_RETRIES - 1:
+        print(f"[RETRY {retry + 1}/{MAX_RETRIES}] 数据不完整（中文名={info.get('中文名')}, "
+              f"发布时间={info.get('发布时间')}），{RETRY_DELAY_SEC}s 后重试...")
+        time.sleep(RETRY_DELAY_SEC)
+        return fetch_typhoon_data(retry + 1)
+
+    # 重试耗尽，若无有效数据则标记为 error
+    if not is_data_valid(info) and retry >= MAX_RETRIES - 1:
+        missing = []
+        if not info.get("中文名"):
+            missing.append("中文名")
+        if not info.get("发布时间"):
+            missing.append("发布时间")
+        if not info.get("总期数"):
+            missing.append("总期数")
+        info["error"] = f"重试{MAX_RETRIES}次后数据仍不完整，缺少: {', '.join(missing)}"
+        info["_retries"] = retry + 1
+
+    return info
 
 def parse_next_update_time(next_str, now=None):
     """解析"下次更新时间"如 "9日20时30分"，返回目标时间+5分钟。
@@ -121,21 +160,16 @@ def parse_next_update_time(next_str, now=None):
     if now is None:
         now = datetime.now()
 
-    # 尝试当月
     target = now.replace(day=day, hour=hour, minute=minute, second=0, microsecond=0)
 
-    # 如果当月目标已过去超过2天，说明数据已过期，直接返回 None 触发爬取
     if target < now - timedelta(days=2):
         return None
 
-    # 当月目标已过去但在2天内（如13日08:00的目标，当前13日09:00），
-    # 说明 NMC 还没更新，等到下个小时再试 → 滚到下个月没有意义，返回 None
     if target <= now:
         return None
 
     target += timedelta(minutes=5)
     return target
-
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -162,4 +196,4 @@ if __name__ == "__main__":
         sys.exit(1)
     else:
         print(f"OK: {data.get('中文名','?')} ({data.get('强度等级','?')}) "
-              f"→ {out_path}")
+              f"第{data.get('编号','?')}号 → {out_path}")
