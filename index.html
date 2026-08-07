@@ -93,7 +93,7 @@
 
     <div class="api-info">
         API 接口：<code>GET ./data/typhoon_latest.json</code> ——
-        SOS-任意查可直接配置此 URL 获取完整 JSON
+        返回最新 3 条台风快讯，字段 <code>bulletins</code> 为数组
     </div>
 
     <div class="update-bar">
@@ -115,7 +115,7 @@ async function loadData() {
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const data = await resp.json();
 
-        if (data.error) {
+        if (data.error && (!data.bulletins || data.bulletins.length === 0)) {
             content.innerHTML = `<div class="error-msg">爬取失败: ${data.error}</div>`;
             return;
         }
@@ -124,18 +124,34 @@ async function loadData() {
             return;
         }
 
+        const bulletins = data.bulletins || [];
+        if (bulletins.length === 0) {
+            content.innerHTML = `<div class="loading">暂无快讯数据</div>`;
+            return;
+        }
+
         document.getElementById("updateTime").textContent =
             "最后更新: " + (data["爬取时间"] || "未知");
-        renderUI(data);
+
+        let html = "";
+        for (let i = 0; i < bulletins.length; i++) {
+            const d = bulletins[i];
+            const badge = i === 0
+                ? '<span style="background:#1565c0;color:#fff;padding:2px 8px;border-radius:3px;font-size:11px;">最新</span>'
+                : `<span style="background:#37474f;color:#90a4ae;padding:2px 8px;border-radius:3px;font-size:11px;">第${i+1}条</span>`;
+            html += renderBulletinCard(d, badge);
+        }
+
+        content.innerHTML = html;
     } catch (e) {
         content.innerHTML = `<div class="error-msg">加载失败: ${e.message}</div>`;
     }
 }
 
-function renderUI(d) {
+function renderBulletinCard(d, badge) {
     const nameEl = d["中文名"]
-        ? `<div class="typhoon-name">${d["中文名"]} (${d["英文名"]||""}) <span>第${d["编号"]||"?"}号台风</span></div>`
-        : "";
+        ? `<div class="typhoon-name">${badge} ${d["中文名"]} (${d["英文名"]||""}) <span>第${d["编号"]||"?"}号台风</span></div>`
+        : `<div class="typhoon-name">${badge} 第${d["编号"]||"?"}号台风</div>`;
 
     const fields = [
         {l:"发布时间", v: d["发布时间"]},
@@ -154,12 +170,19 @@ function renderUI(d) {
         gridHTML += `<div class="info-item"><div class="label">${f.l}</div><div class="value">${f.v}</div></div>`;
     }
 
+    let forecastHTML = "";
+    if (d["预报结论"]) {
+        forecastHTML = `<div class="forecast-card"><h3>预报结论</h3><p>${d["预报结论"]}</p></div>`;
+    }
+
+    // Wind radius cards
     let windHTML = "";
-    for (const w of [
+    const windLabels = [
         {k:"七级风圈", d: d["七级风圈"]},
         {k:"十级风圈", d: d["十级风圈"]},
         {k:"十二级风圈", d: d["十二级风圈"]}
-    ]) {
+    ];
+    for (const w of windLabels) {
         if (!w.d || Object.keys(w.d).length === 0) continue;
         windHTML += `<div class="wind-card"><h3>${w.k}半径</h3><div class="wind-grid">`;
         for (const dir of ["东北","东南","西南","西北"]) {
@@ -168,23 +191,13 @@ function renderUI(d) {
         windHTML += "</div></div>";
     }
 
-    let forecastHTML = "";
-    if (d["预报结论"]) {
-        forecastHTML = `<div class="forecast-card"><h3>预报结论</h3><p>${d["预报结论"]}</p></div>`;
-    }
-
-    let historyHTML = "";
-    if (d["历史快讯时间列表"] && d["历史快讯时间列表"].length > 0) {
-        historyHTML = `<div class="history-card"><h3>历史快讯时间线</h3><div class="timeline">`;
-        for (const t of d["历史快讯时间列表"]) {
-            historyHTML += `<div class="timeline-item">${t}</div>`;
-        }
-        historyHTML += "</div></div>";
-    }
-
-    document.getElementById("content").innerHTML = `
-        <div class="main-card">${nameEl}<div class="info-grid">${gridHTML}</div></div>
-        ${windHTML}${forecastHTML}${historyHTML}
+    return `
+        <div class="main-card">
+            ${nameEl}
+            <div class="info-grid">${gridHTML}</div>
+        </div>
+        ${windHTML}
+        ${forecastHTML}
     `;
 }
 
