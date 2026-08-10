@@ -85,7 +85,7 @@ def parse_bulletin_from_text(text):
     if m:
         info["中心气压"] = m.group(1).strip()
 
-    m = re.search(r"参考位置[：:]\s*(.+?)风圈半径", text)
+    m = re.search(r"参考位置[：:]\s*(.+?)(?:风圈半径|预报结论)", text)
     if m:
         info["参考位置"] = m.group(1).strip()
 
